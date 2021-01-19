@@ -16,7 +16,9 @@ import java.net.URL;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 class UUIDFetcher
 {
@@ -47,12 +49,12 @@ class UUIDFetcher
     {
         if (lookupCache == null)
         {
-            lookupCache = new HashMap<String, UUID>();
+            lookupCache = new HashMap<>();
         }
 
         if (correctedNames == null)
         {
-            correctedNames = new HashMap<String, String>();
+            correctedNames = new HashMap<>();
         }
 
         GriefPrevention.AddLogEntry("UUID conversion process started.  Please be patient - this may take a while.");
@@ -95,9 +97,23 @@ class UUIDFetcher
             }
         }
 
+        names.removeIf(Objects::isNull);
+
         //for online mode, call Mojang to resolve the rest
         if (GriefPrevention.instance.getServer().getOnlineMode())
         {
+            Pattern validNamePattern = Pattern.compile("^\\w+$");
+
+            // Don't bother requesting UUIDs for invalid names from Mojang.
+            names.removeIf(name ->
+            {
+                if (name.length() >= 3 && name.length() <= 16 && validNamePattern.matcher(name).find())
+                    return false;
+
+                GriefPrevention.AddLogEntry(String.format("Cannot convert invalid name: %s", name));
+                return true;
+            });
+
             GriefPrevention.AddLogEntry("Calling Mojang to get UUIDs for remaining unresolved players (this is the slowest step)...");
 
             for (int i = 0; i * PROFILES_PER_REQUEST < names.size(); i++)
@@ -167,10 +183,9 @@ class UUIDFetcher
         {
             GriefPrevention.AddLogEntry("Generating offline mode UUIDs for remaining unresolved players...");
 
-            for (int i = 0; i < names.size(); i++)
+            for (String name : names)
             {
-                String name = names.get(i);
-                UUID uuid = java.util.UUID.nameUUIDFromBytes(("OfflinePlayer:" + name).getBytes(Charsets.UTF_8));
+                UUID uuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + name).getBytes(Charsets.UTF_8));
                 GriefPrevention.AddLogEntry(name + " --> " + uuid.toString());
                 lookupCache.put(name, uuid);
                 lookupCache.put(name.toLowerCase(), uuid);

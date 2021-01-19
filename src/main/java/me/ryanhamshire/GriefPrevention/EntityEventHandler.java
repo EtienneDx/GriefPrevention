@@ -54,6 +54,7 @@ import org.bukkit.entity.ThrownPotion;
 import org.bukkit.entity.Vehicle;
 import org.bukkit.entity.WaterMob;
 import org.bukkit.entity.Wolf;
+import org.bukkit.entity.Zombie;
 import org.bukkit.entity.minecart.ExplosiveMinecart;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -106,8 +107,8 @@ import java.util.UUID;
 public class EntityEventHandler implements Listener
 {
     //convenience reference for the singleton datastore
-    private DataStore dataStore;
-    GriefPrevention instance;
+    private final DataStore dataStore;
+    private final GriefPrevention instance;
     private final NamespacedKey luredByPlayer;
 
     public EntityEventHandler(DataStore dataStore, GriefPrevention plugin)
@@ -342,12 +343,10 @@ public class EntityEventHandler implements Listener
         }
 
         //make a list of blocks which were allowed to explode
-        List<Block> explodedBlocks = new ArrayList<Block>();
+        List<Block> explodedBlocks = new ArrayList<>();
         Claim cachedClaim = null;
-        for (int i = 0; i < blocks.size(); i++)
+        for (Block block : blocks)
         {
-            Block block = blocks.get(i);
-
             //always ignore air blocks
             if (block.getType() == Material.AIR) continue;
 
@@ -369,17 +368,7 @@ public class EntityEventHandler implements Listener
             if (claim != null && claim.siegeData != null)
             {
                 Material material = block.getType();
-                boolean breakable = false;
-                for (int j = 0; j < GriefPrevention.instance.config_siege_blocks.size(); j++)
-                {
-                    Material breakableMaterial = GriefPrevention.instance.config_siege_blocks.get(j);
-                    if (breakableMaterial == material)
-                    {
-                        breakable = true;
-                        explodedBlocks.add(block);
-                        break;
-                    }
-                }
+                boolean breakable = GriefPrevention.instance.config_siege_blocks.contains(material);
 
                 if (breakable) continue;
             }
@@ -746,6 +735,7 @@ public class EntityEventHandler implements Listener
             {
                 DamageCause cause = event.getCause();
                 if (cause != null && (
+                        cause == DamageCause.BLOCK_EXPLOSION ||
                         cause == DamageCause.ENTITY_EXPLOSION ||
                                 cause == DamageCause.FALLING_BLOCK ||
                                 cause == DamageCause.FIRE ||
@@ -760,6 +750,8 @@ public class EntityEventHandler implements Listener
                 }
             }
         }
+
+        if (handleBlockExplosionDamage(event)) return;
 
         //the rest is only interested in entities damaging entities (ignoring environmental damage)
         if (!(event instanceof EntityDamageByEntityEvent)) return;
@@ -827,7 +819,7 @@ public class EntityEventHandler implements Listener
                         damagedData.lastClaim = damagedClaim;
                         if (GriefPrevention.instance.claimIsPvPSafeZone(damagedClaim))
                         {
-                            PreventPvPEvent pvpEvent = new PreventPvPEvent(damagedClaim);
+                            PreventPvPEvent pvpEvent = new PreventPvPEvent(damagedClaim, attacker, damaged);
                             Bukkit.getPluginManager().callEvent(pvpEvent);
                             if (!pvpEvent.isCancelled())
                             {
@@ -895,7 +887,7 @@ public class EntityEventHandler implements Listener
                                 GriefPrevention.instance.claimIsPvPSafeZone(attackerClaim))
                         {
                             attackerData.lastClaim = attackerClaim;
-                            PreventPvPEvent pvpEvent = new PreventPvPEvent(attackerClaim);
+                            PreventPvPEvent pvpEvent = new PreventPvPEvent(attackerClaim, attacker, defender);
                             Bukkit.getPluginManager().callEvent(pvpEvent);
                             if (!pvpEvent.isCancelled())
                             {
@@ -912,7 +904,7 @@ public class EntityEventHandler implements Listener
                                 GriefPrevention.instance.claimIsPvPSafeZone(defenderClaim))
                         {
                             defenderData.lastClaim = defenderClaim;
-                            PreventPvPEvent pvpEvent = new PreventPvPEvent(defenderClaim);
+                            PreventPvPEvent pvpEvent = new PreventPvPEvent(defenderClaim, attacker, defender);
                             Bukkit.getPluginManager().callEvent(pvpEvent);
                             if (!pvpEvent.isCancelled())
                             {
@@ -955,7 +947,7 @@ public class EntityEventHandler implements Listener
                                     GriefPrevention.instance.claimIsPvPSafeZone(defenderClaim))
                             {
                                 defenderData.lastClaim = defenderClaim;
-                                PreventPvPEvent pvpEvent = new PreventPvPEvent(defenderClaim);
+                                PreventPvPEvent pvpEvent = new PreventPvPEvent(defenderClaim, attacker, defender);
                                 Bukkit.getPluginManager().callEvent(pvpEvent);
 
                                 //if other plugins aren't making an exception to the rule 
@@ -1002,7 +994,7 @@ public class EntityEventHandler implements Listener
                     if (attacker == null)
                     {
                         //exception case
-                        if (event.getEntityType() == EntityType.VILLAGER && damageSource != null && damageSource.getType() == EntityType.ZOMBIE)
+                        if (event.getEntityType() == EntityType.VILLAGER && damageSource != null && damageSource instanceof Zombie)
                         {
                             return;
                         }
@@ -1055,7 +1047,7 @@ public class EntityEventHandler implements Listener
                                     message += "  " + GriefPrevention.instance.dataStore.getMessage(Messages.IgnoreClaimsAdvertisement);
                                 if (sendErrorMessagesToPlayers)
                                     GriefPrevention.sendMessage(attacker, TextMode.Err, message);
-                                PreventPvPEvent pvpEvent = new PreventPvPEvent(new Claim(subEvent.getEntity().getLocation(), subEvent.getEntity().getLocation(), null, new ArrayList<String>(), new ArrayList<String>(), new ArrayList<String>(), new ArrayList<String>(), null));
+                                PreventPvPEvent pvpEvent = new PreventPvPEvent(new Claim(subEvent.getEntity().getLocation(), subEvent.getEntity().getLocation(), null, new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), null), attacker, tameable);
                                 Bukkit.getPluginManager().callEvent(pvpEvent);
                                 if (!pvpEvent.isCancelled())
                                 {
@@ -1178,6 +1170,31 @@ public class EntityEventHandler implements Listener
                 }
             }
         }
+    }
+
+    /**
+     * Handles entity damage caused by block explosions.
+     *
+     * @param event the EntityDamageEvent
+     * @return true if the damage has been handled
+     */
+    private boolean handleBlockExplosionDamage(EntityDamageEvent event)
+    {
+        if (event.getCause() != DamageCause.BLOCK_EXPLOSION) return false;
+
+        Entity entity = event.getEntity();
+
+        // Skip players - does allow players to use block explosions to bypass PVP protections,
+        // but also doesn't disable self-damage.
+        if (entity instanceof Player) return false;
+
+        Claim claim = GriefPrevention.instance.dataStore.getClaimAt(entity.getLocation(), false, null);
+
+        // Only block explosion damage inside claims.
+        if (claim == null) return false;
+
+        event.setCancelled(true);
+        return true;
     }
 
     @EventHandler(ignoreCancelled = true, priority = EventPriority.LOWEST)
@@ -1391,7 +1408,7 @@ public class EntityEventHandler implements Listener
                             if (thrower == null || claim.allowContainers(thrower) != null)
                             {
                                 event.setIntensity(effected, 0);
-                                instance.sendMessage(thrower, TextMode.Err, Messages.NoDamageClaimedEntity, claim.getOwnerName());
+                                GriefPrevention.sendMessage(thrower, TextMode.Err, Messages.NoDamageClaimedEntity, claim.getOwnerName());
                                 return;
                             }
                         }
@@ -1424,7 +1441,7 @@ public class EntityEventHandler implements Listener
                     if (attackerClaim != null && GriefPrevention.instance.claimIsPvPSafeZone(attackerClaim))
                     {
                         attackerData.lastClaim = attackerClaim;
-                        PreventPvPEvent pvpEvent = new PreventPvPEvent(attackerClaim);
+                        PreventPvPEvent pvpEvent = new PreventPvPEvent(attackerClaim, thrower, effectedPlayer);
                         Bukkit.getPluginManager().callEvent(pvpEvent);
                         if (!pvpEvent.isCancelled())
                         {
@@ -1438,7 +1455,7 @@ public class EntityEventHandler implements Listener
                     if (defenderClaim != null && GriefPrevention.instance.claimIsPvPSafeZone(defenderClaim))
                     {
                         defenderData.lastClaim = defenderClaim;
-                        PreventPvPEvent pvpEvent = new PreventPvPEvent(defenderClaim);
+                        PreventPvPEvent pvpEvent = new PreventPvPEvent(defenderClaim, thrower, effectedPlayer);
                         Bukkit.getPluginManager().callEvent(pvpEvent);
                         if (!pvpEvent.isCancelled())
                         {
@@ -1451,7 +1468,7 @@ public class EntityEventHandler implements Listener
         }
     }
 
-    public static final HashSet<PotionEffectType> positiveEffects = new HashSet<PotionEffectType>(Arrays.asList
+    public static final HashSet<PotionEffectType> positiveEffects = new HashSet<>(Arrays.asList
             (
                     PotionEffectType.ABSORPTION,
                     PotionEffectType.DAMAGE_RESISTANCE,
