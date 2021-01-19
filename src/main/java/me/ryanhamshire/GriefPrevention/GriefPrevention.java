@@ -244,20 +244,6 @@ public class GriefPrevention extends JavaPlugin
 	//how long to wait before deciding a player is staying online or staying offline, for notication messages
 	public static final int NOTIFICATION_SECONDS = 20;
 
-<<<<<<< HEAD
-=======
-    private String databaseUrl;
-    private String databaseUserName;
-    private String databasePassword;
-
-
-    //how far away to search from a tree trunk for its branch blocks
-    public static final int TREE_RADIUS = 5;
-
-    //how long to wait before deciding a player is staying online or staying offline, for notication messages
-    public static final int NOTIFICATION_SECONDS = 20;
->>>>>>> 2b69191e73be2123461f3ed4e2329f61e51e407d
-
     //adds a server log entry
     public static synchronized void AddLogEntry(String entry, CustomLogEntryTypes customLogType, boolean excludeFromServerLogs)
     {
