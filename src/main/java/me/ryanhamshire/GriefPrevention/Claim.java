@@ -384,7 +384,8 @@ public class Claim
             Material.CARROTS,
             Material.POTATOES,
             Material.NETHER_WART,
-            Material.BEETROOTS);
+            Material.BEETROOTS,
+            Material.COCOA);
 
     private static boolean placeableForFarming(Material material)
     {
@@ -842,17 +843,20 @@ public class Claim
         //not in the same world implies false
         if (!Objects.equals(location.getWorld(), this.lesserBoundaryCorner.getWorld())) return false;
 
+        BoundingBox boundingBox = new BoundingBox(this);
         int x = location.getBlockX();
         int z = location.getBlockZ();
-        int y;
-        if (ignoreHeight) {
-            y = location.getBlockY();
-        } else {
-            y = getLesserBoundaryCorner().getBlockY();
-        }
 
-        //main check
-        if (!new BoundingBox(this).contains(x, y, z)) return false;
+        // If we're ignoring height, use 2D containment check.
+        if (ignoreHeight && !boundingBox.contains2d(x, z))
+        {
+            return false;
+        }
+        // Otherwise use full containment check.
+        else if (!ignoreHeight && !boundingBox.contains(x, location.getBlockY(), z))
+        {
+            return false;
+        }
 
         //additional check for subdivisions
         //you're only in a subdivision when you're also in its parent claim
